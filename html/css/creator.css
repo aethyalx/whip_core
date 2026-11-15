@@ -916,7 +916,9 @@ html[data-input="pad"] #creator .cr-pad-hints { display: flex; }
 
 /* Armed cancel — the two-step discard confirmation. */
 .cr-btn.armed,
-.cr-btn.armed:hover {
+.cr-btn.armed:hover,
+.cr-btn.refused,
+.cr-btn.refused:hover {
     background: var(--ui-error);
     border-color: transparent;
     color: rgb(10, 12, 18);

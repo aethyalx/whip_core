@@ -231,6 +231,7 @@ server_scripts {
     'server/events_vehicles.lua',
     'server/seats.lua',
     'server/events_misc.lua',
+    'server/appearance_store.lua',   -- a look kept by a store (GetAppearanceChanges, SetPlayerAppearance)
     'server/shop_counters.lua',
     'server/shop_talk.lua',
     -- After RegisterItem, RegisterUseHandler (inventory.lua) and RegisterPanelItem (panels.lua), which items call at file scope.

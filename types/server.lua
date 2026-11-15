@@ -1564,6 +1564,29 @@ function whip_core:SanitizeAppearance(appearance) end
 ---@return string|nil why
 function whip_core:OpenCharacterEditor(who) end
 
+--- What a store's customer changed (client EditAppearance): their saved look against `look`, by the editor's tabs.
+--- A count per category id ('tops' = 1, 'makeup' = 2 for two of its overlays) and `tattoos` for tattoos put on.
+--- Taking off an accessory or a tattoo counts nothing. `only` (the editor's category ids or groups) counts only those.
+---
+---     local changes = exports.whip_core:GetAppearanceChanges(source, look, { 'apparel', 'props' })
+---@param who number|{ charId: number } A server id, or { charId = n } for a character who is playing
+---@param look table The look from the editor
+---@param only? string[] Category ids ('hair', 'tops') or groups ('face', 'apparel', 'props', 'tattoos', 'outfits')
+---@return table|false changes { [id] = count, tattoos? = count }
+---@return string|nil why
+function whip_core:GetAppearanceChanges(who, look, only) end
+
+--- Keep a look for a playing character, checked as the editor's Save is. opts.only takes only those tabs' parts
+--- from `look` and keeps the rest of their saved look, so a barber can't change a face. Their game gets it at once.
+---
+---     local ok, why = exports.whip_core:SetPlayerAppearance(source, look, { only = { 'hair', 'beard' } })
+---@param who number|{ charId: number } A server id, or { charId = n } for a character who is playing
+---@param look table The look
+---@param opts? { only?: string[] }
+---@return boolean ok
+---@return table|string result The look kept, or why not
+function whip_core:SetPlayerAppearance(who, look, opts) end
+
 --- Register (or replace) one accessory-strip slot. Re-registration is
 --- idempotent, and a stopping resource's slots are unregistered automatically.
 --- `accepts` names the item key the slot takes, or a list of them; `keys = true` takes any ignition key

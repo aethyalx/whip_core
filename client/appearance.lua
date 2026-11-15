@@ -19,6 +19,8 @@ local savedAppearance = nil  -- backup for cancel
 
 --- While the creator is open on a look that is not this character's (EditLook): { done = function(look, headshot) }.
 local lookFor = nil
+-- The editor as a store (EditAppearance): { onSave, onClose, busy }; Save goes to it. nil otherwise.
+local storeFor = nil
 
 -- Preview-loop bookkeeping (see the previewAppearance callback); declared here so later functions can see it.
 local previewGen = 0             -- generation stamp; stale waiters drop out
@@ -975,7 +977,8 @@ AddEventHandler('whip_core:appearance:modelChanged', function()
     if isCreatorOpen and creatorIsNew then startCreatorPose() end
 end)
 
----@param heading table|nil  { title, sub }: the editor's heading (EditLook's: whose look it is)
+---@param heading table|nil  { title, sub, store }: the editor's heading (EditLook's: whose look it is), and
+---                           EditAppearance's store ({ only, prices }: its tabs and the price on Save)
 local function OpenCreator(appearance, isNew, heading)
     if isCreatorOpen then return end
     isCreatorOpen = true
@@ -1005,6 +1008,7 @@ local function OpenCreator(appearance, isNew, heading)
         isNew = isNew or false,
         title = heading and heading.title or nil,
         sub = heading and heading.sub or nil,
+        store = heading and heading.store or nil,   -- EditAppearance: { only, prices }
         outfits = PlayerData and PlayerData.metadata and PlayerData.metadata.outfits or {},
         outfitMax = math.max(1, math.min(100, math.floor(tonumber((Config.Creator or {}).maxOutfits) or 20))),   -- the server's bounds
     })
@@ -1378,6 +1382,33 @@ RegisterNUICallback('saveAppearance', function(data, cb)
         return
     end
 
+    -- A store (EditAppearance): Save goes to it, which charges and keeps the look (SetPlayerAppearance), or
+    -- says why not and the editor stays open.
+    if storeFor then
+        cb({ ok = true })
+        local job = storeFor
+        if job.busy then return end
+        job.busy = true
+        CreateThread(function()
+            local called, ok, why = pcall(job.onSave, appearance)
+            job.busy = false
+            if storeFor ~= job or not CreatorLive() then return end   -- closed meanwhile (a death, a logout)
+            if called and ok == true then
+                storeFor = nil
+                -- What the server kept (its metadataChanged comes before the store's answer), else what was saved.
+                local kept = PlayerData.metadata and PlayerData.metadata.appearance
+                ApplyAppearance(PlayerPedId(), (kept and kept.model) and kept or appearance)
+                FinishCreator()
+                if job.onClose then pcall(job.onClose, true) end
+            else
+                if not called then print(('^1[whip_core] EditAppearance onSave failed: %s^0'):format(tostring(ok))) end
+                SendNUIMessage({ action = 'creatorSaveRefused',
+                    why = called and type(why) == 'string' and why ~= '' and why:sub(1, 60) or 'Not saved' })
+            end
+        end)
+        return
+    end
+
     local ped = PlayerPedId()
     ApplyAppearance(ped, appearance)
 
@@ -1405,6 +1436,11 @@ RegisterNUICallback('cancelCreator', function(_, cb)
         return
     end
 
+    -- A store: not while it is charging for Save (the look may be kept a moment later).
+    local job = storeFor
+    if job and job.busy then cb({ ok = false }) return end
+    storeFor = nil
+
     -- Restore saved appearance
     if savedAppearance and savedAppearance.model then
         local ped = PlayerPedId()
@@ -1414,6 +1450,7 @@ RegisterNUICallback('cancelCreator', function(_, cb)
     -- A new character skipping the creator still enters the world, keeping the default look.
     cb({ ok = true })
     FinishCreator()
+    if job and job.onClose then pcall(job.onClose, false) end
 end)
 
 -- Outfits tab buttons: save, save over, rename, delete. The server keeps the list (server/events_misc.lua);
@@ -1513,7 +1550,8 @@ end)
 --- Waits; call it from a thread.
 ---@return boolean ok
 ---@return string|nil why
-function OpenCharacterEditor()
+---@param heading table|nil  { title, sub, store }: EditAppearance's heading and store
+function OpenCharacterEditor(heading)
     if not PlayerLoaded then return false, 'No character loaded.' end
     if isCreatorOpen then return false, 'Creator is already open.' end
     if PlayerIsDead then return false, 'Not while dead.' end
@@ -1540,7 +1578,7 @@ function OpenCharacterEditor()
         Wait(300)
     end
 
-    OpenCreator(appearance, false)
+    OpenCreator(appearance, false, heading)
 
     -- Raised only if it was dropped, after the creator is up.
     if needsSwap then
@@ -1660,6 +1698,51 @@ function EditLook(opts)
     return true
 end
 
+local function callable(v)
+    if type(v) == 'function' then return true end
+    if type(v) ~= 'table' then return false end
+    if rawget(v, '__cfx_functionReference') ~= nil then return true end
+    local mt = getmetatable(v)
+    return type(mt) == 'table' and rawget(mt, '__call') ~= nil
+end
+
+--- The editor on this character's own look, as a store: only the tabs `only` names, the price of what changed on
+--- Save, and Save handed to onSave(look), which charges and keeps it (server: SetPlayerAppearance) and returns
+--- true, or false, 'why' (said on Save; the editor stays open). Waits for the fade only; call it from a thread.
+---@param opts table  { only = { category ids or groups }, prices = { [id or group or 'default'] = $ each },
+---                     title, sub, onSave = function(look) -> ok, why, onClose = function(saved) | nil }
+---@return boolean ok
+---@return string|nil why
+function EditAppearance(opts)
+    if type(opts) ~= 'table' or not callable(opts.onSave) then return false, 'onSave is required' end
+    local why = LookEditProblem()
+    if why then return false, why end
+    local only, prices = {}, {}
+    for _, v in ipairs(type(opts.only) == 'table' and opts.only or {}) do
+        if type(v) == 'string' then only[#only + 1] = v end
+    end
+    for k, v in pairs(type(opts.prices) == 'table' and opts.prices or {}) do
+        if type(k) == 'string' and type(v) == 'number' and v >= 0 then prices[k] = v end
+    end
+    storeFor = { onSave = opts.onSave, onClose = callable(opts.onClose) and opts.onClose or nil, busy = false }
+    local ok, err = OpenCharacterEditor({
+        title = type(opts.title) == 'string' and opts.title or nil,
+        sub = type(opts.sub) == 'string' and opts.sub or nil,
+        store = { only = only, prices = prices },
+    })
+    if not ok then storeFor = nil end
+    return ok, err
+end
+
+exports('EditAppearance', EditAppearance)
+
+--- A store's editor closed without a Save (a death, a logout): tell it, once.
+local function dropStore()
+    local job = storeFor
+    storeFor = nil
+    if job and job.onClose then CreateThread(function() pcall(job.onClose, false) end) end
+end
+
 -- Resource stop: release the camera, NUI focus and this file's open/closing flags.
 AddEventHandler('onResourceStop', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
@@ -1679,6 +1762,7 @@ local reopenOnRevive = nil   -- that new character's look to open on
 AddEventHandler('whip_core:player:died', function()
     if not CreatorLive() then return end
     if lookFor then FinishLook(nil) return end
+    dropStore()
     local back = savedAppearance
     if creatorIsNew then reopenOnRevive = back or GetDefaultAppearance(PlayerData and PlayerData.gender or 'male') end
     KillCreatorCamera()
@@ -1697,6 +1781,7 @@ end)
 -- A logout closes it too, before the character screen is built (its Save would write onto the next character). Nothing is saved.
 AddEventHandler('whip_core:player:logout', function()
     lookFor = nil   -- someone else's look is dropped with it: the character screen makes a new ped anyway
+    dropStore()
     local waiting = reopenOnRevive ~= nil
     reopenOnRevive = nil
     if not isCreatorOpen and not waiting then return end

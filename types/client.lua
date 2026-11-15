@@ -189,6 +189,19 @@ function whip_core:IsPlayerLoaded() end
 ---@async
 function whip_core:EnterCharacter(opts) end
 
+--- The character editor on this character's own look, as a store: only the tabs `only` names, Save priced from
+--- `prices` ("Pay $120"), and Save handed to onSave(look), which charges and keeps it (server GetAppearanceChanges,
+--- SetPlayerAppearance) and returns true, or false, 'why' (said on Save; the editor stays open). Cancel puts the
+--- old look back. onClose(saved) is told when it shuts. Yields for the fade.
+---
+---     exports.whip_core:EditAppearance({ only = { 'hair', 'beard' }, prices = { hair = 40, beard = 15 },
+---         title = 'Herr Kutz', onSave = function(look) return exports.whip_core:Callback('mybarber:buy', look) end })
+---@param opts { only?: string[], prices?: table<string, number>, title?: string, sub?: string, onSave: fun(look: table): boolean, string?, onClose?: fun(saved: boolean) }
+---@return boolean ok
+---@return string|nil why
+---@async
+function whip_core:EditAppearance(opts) end
+
 --- Get the current character ID.
 ---@return number|nil charId Nil if not loaded
 function whip_core:GetCharId() end

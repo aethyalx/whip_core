@@ -9,6 +9,7 @@ import {
     OVERLAY_PALETTE, EYE_COLORS, HAIR_COLORS, MAKEUP_COLORS,
     TATTOO_FACING_YAW, TATTOO_MAX,
 } from './creator-data.js';
+import { storeAllows, storeChanges, storePrice } from './creator-store.js';
 
 // ========================================
 // CHARACTER CREATOR / APPEARANCE EDITOR
@@ -41,6 +42,12 @@ let activeSubtab = 0;           // index into the category's sub-tabs
 let activeFeatureGroup = null;  // entry from FEATURE_GROUPS (features category)
 let currentCamPreset = null;
 let cancelArmed = null;         // timeout id while Cancel awaits confirmation
+
+// In a store (client/appearance.lua EditAppearance): { only: Set | null, prices, from (the look opened on),
+// busy (Save is with the store), why (its last refusal) }; null in the creator and /charedit.
+let store = null;
+let shownCats = CATEGORIES;         // the tabs offered: a store's only
+let shownClusters = CLUSTER_ORDER;  // and the groups that have one
 
 // Chunked grid rendering — big component grids (torso clears 200 drawables)
 // append in slices as the list scrolls instead of building 200 nodes up front.
@@ -202,7 +209,10 @@ function normalizeAppearance(a) {
 
 /** Clone state back into the exact saved shape. */
 function collectAppearance() {
-    const a = appearance;
+    return collectAppearanceOf(appearance);
+}
+
+function collectAppearanceOf(a) {
     const out = {
         model: a.model,
         headBlend: {
@@ -331,6 +341,8 @@ function previewTick() {
         requestAnimationFrame(previewTick);
     } else {
         previewLoopRunning = false;
+        // Settled after a change: a store's price follows it, and its last refusal is gone.
+        if (store && !store.busy) { store.why = ''; markStorePrice(); }
     }
 }
 
@@ -855,13 +867,13 @@ function iconSlotOf(cat) {
 // menu's words at the top of the panel, the categories a row of the Director's
 // tabs under them.
 function buildRail() {
-    $('cr-groups').innerHTML = CLUSTER_ORDER.map(key => {
+    $('cr-groups').innerHTML = shownClusters.map(key => {
         const on = key === activeCluster;
         return `<button class="cr-group${on ? ' active' : ''}" data-action="cluster" data-cluster="${key}"
             aria-pressed="${on}">${CLUSTER_LABELS[key] || key}</button>`;
     }).join('');
 
-    $('cr-rail').innerHTML = CATEGORIES.filter(cat => cat.cluster === activeCluster).map(cat =>
+    $('cr-rail').innerHTML = shownCats.filter(cat => cat.cluster === activeCluster).map(cat =>
         `<button class="cr-tab" data-action="category" data-cat="${cat.id}">${cat.label}</button>`).join('');
     markActiveRail();
 }
@@ -880,7 +892,7 @@ function markActiveRail() {
  *  listing the old group while the grid showed the new one. */
 function selectCluster(key) {
     if (!key || key === activeCluster) return;
-    const first = CATEGORIES.find(c => c.cluster === key);
+    const first = shownCats.find(c => c.cluster === key);
     if (first) selectCategory(first.id);
 }
 
@@ -1836,8 +1848,32 @@ function bindStageEvents(root) {
 
 function saveAppearance() {
     disarmCancel();
+    if (store) {
+        if (store.busy) return;
+        store.busy = true;
+        store.why = '';
+        markStorePrice();
+    }
     nuiCallback('saveAppearance', { appearance: collectAppearance() });
 }
+
+/** A store's Save says the price of what changed: "Pay $120", or Save while nothing costs anything. */
+function markStorePrice() {
+    const btn = $('cr-save');
+    if (!btn) return;
+    if (!store) { btn.textContent = 'Save'; btn.title = ''; return; }
+    const total = storePrice(storeChanges(store.from, collectAppearance(), store.only), store.prices);
+    btn.textContent = store.busy ? 'Paying…' : store.why ? store.why : total > 0 ? `Pay $${total.toLocaleString('en-US')}` : 'Save';
+    btn.classList.toggle('refused', !!store.why && !store.busy);
+}
+
+// The store said no (not enough money, too far away): the editor stays open, the reason on Save until the next change.
+NuiRouter.register('creatorSaveRefused', (d) => {
+    if (!store) return;
+    store.busy = false;
+    store.why = typeof d.why === 'string' && d.why ? d.why : 'Not saved';
+    markStorePrice();
+});
 
 // Cancel is destructive (every tweak since open is lost), so it arms first:
 // one press turns the button into "DISCARD?", a second within 3s confirms.
@@ -2037,8 +2073,8 @@ function ctlSlide(el, sign) {
  *  are where they were; on the cards it is over the new category's); what is under it is ringed again. */
 function ctlCategory(step) {
     if (!activeCategory) return;
-    const i = CATEGORIES.indexOf(activeCategory);
-    selectCategory(CATEGORIES[(i + step + CATEGORIES.length) % CATEGORIES.length].id);
+    const i = shownCats.indexOf(activeCategory);
+    selectCategory(shownCats[(i + step + shownCats.length) % shownCats.length].id);
     requestAnimationFrame(() => cursor.refresh());
 }
 
@@ -2183,9 +2219,18 @@ NuiRouter.register('openCreator', (d) => {
     const subEl = document.querySelector('#creator .cr-title-sub');
     if (titleEl) titleEl.textContent = typeof d.title === 'string' && d.title ? d.title : 'Character Creator';
     if (subEl) subEl.textContent = typeof d.sub === 'string' && d.sub ? d.sub : 'Appearance';
+    // A store's tabs and prices (client/appearance.lua EditAppearance), or every tab and a plain Save.
+    const s = d.store && typeof d.store === 'object' ? d.store : null;
+    const only = s && Array.isArray(s.only) && s.only.length ? new Set(s.only.map(String)) : null;
+    store = s ? { only, prices: (s.prices && typeof s.prices === 'object') ? s.prices : {},
+        from: collectAppearanceOf(appearance), busy: false, why: '' } : null;
+    shownCats = CATEGORIES.filter(cat => storeAllows(only, cat));
+    if (!shownCats.length) shownCats = CATEGORIES;
+    shownClusters = CLUSTER_ORDER.filter(key => shownCats.some(cat => cat.cluster === key));
+    markStorePrice();
     creatorOpen = true;
     currentCamPreset = 'torso';  // OpenCreator's Lua side starts on the torso preset
-    activeCluster = 'face';
+    activeCluster = shownCats[0].cluster;
     // The palettes arrive with maxVariations, so last session's sorted copy is
     // stale the moment a new one does.
     delete paletteCache.hair;
@@ -2197,7 +2242,7 @@ NuiRouter.register('openCreator', (d) => {
     loadNames();                 // the first open only: kept after that
     buildRail();
     document.getElementById('creator').classList.add('open');
-    selectCategory('heritage');
+    selectCategory(shownCats[0].id);
     // Laid out first (display: block a frame ago), so the stage's box is real.
     requestAnimationFrame(() => requestAnimationFrame(reportStage));
 });
@@ -2241,6 +2286,8 @@ NuiRouter.register('closeCreator', () => {
     cursor.hide();
     disarmCancel();
     disarmOutfitDelete();
+    store = null;
+    markStorePrice();
     document.getElementById('creator').classList.remove('open');
     $('cr-grid').innerHTML = '';
     setOptions(null, null);

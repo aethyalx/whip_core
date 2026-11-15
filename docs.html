@@ -2905,12 +2905,61 @@ exports.whip_core:SetPlayerFlag(source, 'jobs_done', jobs + 1)</code></pre>
 <div class="export-card" data-search="opencharactereditor character editor creator appearance clothing barber surgeon open force">
 <div class="export-header"><span class="export-name">OpenCharacterEditor(who)</span><span class="export-side side-server">SERVER</span></div>
 <div class="export-body">
-  <p>Opens a player's character editor on their own character, as <code>/charedit</code> does: Save keeps the new look and Cancel puts the old one back. It's refused for someone who isn't online, is still making their character or is down, and their game also refuses it while the editor is already open. A clothing shop or a surgeon calls it once the player has paid.</p>
+  <p>Opens a player's character editor on their own character, as <code>/charedit</code> does: Save keeps the new look and Cancel puts the old one back. It's refused for someone who isn't online, is still making their character or is down, and their game also refuses it while the editor is already open. A surgeon calls it once the player has paid; a store uses <code>EditAppearance</code>.</p>
   <table class="param-table"><tr><th>Param</th><th>Type</th><th>Description</th></tr>
   <tr><td>who</td><td>number|table</td><td>A server id, or <code>{ charId = n }</code> for a character who is online</td></tr></table>
   <div class="return-info"><strong>Returns: </strong><code>true</code>, or <code>false, why</code></div>
 <pre><code class="lang-lua">local ok, why = exports.whip_core:OpenCharacterEditor(source)
 if not ok then exports.whip_core:NotifyPlayer(source, why, 'error') end</code></pre>
+</div></div>
+
+<p>A store (clothes, a barber, tattoos) opens the editor with <code>EditAppearance</code> on the player's game: only its tabs, the price of what changed on Save. Its server counts the changes with <code>GetAppearanceChanges</code>, charges, and keeps the look with <code>SetPlayerAppearance</code>. The tabs are the editor's category ids (<code>heritage features eyes hair eyebrows beard makeup skin chestHair</code>, <code>mask tops undershirt arms legs shoes accessory armor decal bag</code>, <code>hat glasses ear watch bracelet</code>, <code>tatHead tatTorso tatLeftArm tatRightArm tatLeftLeg tatRightLeg</code>, <code>outfits</code>) or their groups (<code>face apparel props tattoos outfits</code>). Any tattoo tab lets every tattoo change. Saved outfits only put clothes on, so offer <code>outfits</code> with <code>apparel</code> and <code>props</code>.</p>
+
+<div class="export-card" data-search="editappearance store shop clothing barber tattoo editor price pay appearance">
+<div class="export-header"><span class="export-name">EditAppearance(opts)</span><span class="export-side side-client">CLIENT</span></div>
+<div class="export-body">
+  <p>Opens the character editor on this character's own look, as a store. Save shows the price of what changed and calls <code>onSave(look)</code>, which charges and keeps it (on the server) and returns <code>true</code>, or <code>false, why</code>: the reason is shown on Save and the editor stays open. Cancel puts the old look back. Refused while dead, in a vehicle or holding a weapon. Waits for the fade.</p>
+  <table class="param-table"><tr><th>Field</th><th>Type</th><th>Description</th></tr>
+  <tr><td>only</td><td>table?</td><td>The tabs offered: category ids or groups. Left out, all of them</td></tr>
+  <tr><td>prices</td><td>table?</td><td>Dollars each, by category id, then group, then <code>default</code>: <code>{ apparel = 50, hat = 20 }</code>. <code>tattoos</code> is per tattoo put on</td></tr>
+  <tr><td>title / sub</td><td>string?</td><td>The editor's heading</td></tr>
+  <tr><td>onSave</td><td>function(look)</td><td>Required. May wait. Returns <code>true</code>, or <code>false, why</code> (60 characters)</td></tr>
+  <tr><td>onClose</td><td>function(saved)?</td><td>The editor shut: saved, or not (Cancel, a death, a logout)</td></tr></table>
+  <div class="return-info"><strong>Returns: </strong><code>true</code>, or <code>false, why</code></div>
+<pre><code class="lang-lua">exports.whip_core:EditAppearance({
+    only = { 'hair', 'beard', 'eyebrows' }, prices = { hair = 40, default = 15 }, title = 'Herr Kutz',
+    onSave = function(look) return exports.whip_core:Callback('mybarber:buy', look) end,
+})</code></pre>
+</div></div>
+
+<div class="export-card" data-search="getappearancechanges store shop clothing barber tattoo price changed appearance">
+<div class="export-header"><span class="export-name">GetAppearanceChanges(who, look, only?)</span><span class="export-side side-server">SERVER</span></div>
+<div class="export-body">
+  <p>What changed between a playing character's saved look and <code>look</code>, counted as the editor prices it: one per category id changed (<code>makeup</code> counts each of its three overlays), and <code>tattoos</code> per tattoo put on. Taking off an accessory or a tattoo counts nothing.</p>
+  <table class="param-table"><tr><th>Param</th><th>Type</th><th>Description</th></tr>
+  <tr><td>who</td><td>number|table</td><td>A server id, or <code>{ charId = n }</code></td></tr>
+  <tr><td>look</td><td>table</td><td>The look from the editor</td></tr>
+  <tr><td>only</td><td>table?</td><td>Count only these category ids or groups</td></tr></table>
+  <div class="return-info"><strong>Returns: </strong><code>{ [id] = count, tattoos? }</code>, or <code>false, why</code></div>
+</div></div>
+
+<div class="export-card" data-search="setplayerappearance store shop clothing barber tattoo save keep appearance look">
+<div class="export-header"><span class="export-name">SetPlayerAppearance(who, look, opts?)</span><span class="export-side side-server">SERVER</span></div>
+<div class="export-body">
+  <p>Keeps a look for a playing character, checked as the editor's Save is, and sends it to their game. <code>opts.only</code> takes only those tabs' parts from <code>look</code> and keeps the rest of their saved look, so a barber can't change a face.</p>
+  <div class="return-info"><strong>Returns: </strong><code>true, look</code> (as kept), or <code>false, why</code></div>
+<pre><code class="lang-lua">SecureCallback('mybarber:buy', { params = { { 'look', 'any' } } }, function(source, player, look)
+    local only = { 'hair', 'beard', 'eyebrows' }
+    local changes, why = exports.whip_core:GetAppearanceChanges(source, look, only)
+    if not changes then return false, why end
+    local total = 0
+    for id, n in pairs(changes) do total = total + (id == 'hair' and 40 or 15) * n end
+    local receipt, err = exports.whip_core:ChargePlayer(source, total, { reason = 'Haircut' })
+    if not receipt then return false, err end
+    local ok, kept = exports.whip_core:SetPlayerAppearance(source, look, { only = only })
+    if not ok then exports.whip_core:RefundPlayer(receipt) return false, kept end
+    return true
+end)</code></pre>
 </div></div>
 <h2 id="client-player">Player &amp; Status (Client)</h2>
 <p class="lede">Client exports about the local player: their sheet, stats and effects, body state, emotes and voice. For the server side, see <a href="#player">Player</a>.</p>
@@ -12485,7 +12534,7 @@ end)</code></pre>
   // ---- WAITS: the exports that can wait (on the database, on the player), each card's badge. The same list as
   // the ---@async marks in types/server.lua and types/client.lua. `node dev/waits.js --write` writes this line and
   // lib/satellite.lua's from the code; `--check` keeps all three the same ----
-  var WAITS = {"server":["AddCatalogItem","AddItem","AdoptVehicle","BankDeposit","BankSystemDeposit","BankSystemTransfer","BankSystemWithdraw","BankTransfer","BankWithdraw","CanGrantBankAccess","CanHirePlayer","CanUseBankAccount","ChangeVehicleLocks","ChargePlayer","ClaimVehicle","ClearAllVehicleData","ClearVehicleData","CloseBankAccount","ClosePanel","ClosePlayerInventory","CloseStore","CommitWithAction","CountVehicleKeys","CreateBankAccount","CreateContainer","CreateDoor","CreateGarage","CreateGroundItem","CreateJobRole","CreateOwnedVehicle","CreateShop","DeleteContainer","DeleteDoor","DeleteGarage","DeleteGroundItem","DeleteJob","DeleteJobRole","DeleteShop","DeleteZone","DespawnVehicle","EnsureContainer","EnsureDoor","EnsureDoors","EnsureJob","EnsureShop","EnsureTable","EnsureZone","FlushActivityLog","GetBalance","GetBankAccessList","GetBankAccount","GetBankTransactions","GetCharacterBankAccounts","GetCharacterNames","GetDefaultBankAccount","GetItemAt","GetJobBankAccounts","GetPermissionHolders","GetPlayerMetadata","GetPlayerVehicleKeys","GetScenarioStats","GetShopPrices","GetShopStock","GiveOnLogin","GivePropertyKey","GiveVehicleKey","GrantBankAccess","GrantPermission","HasVehicleKey","HirePlayer","HoldDoor","HoldMoney","IsCharacterDeleted","LinkDoors","LogActivity","LoreSay","OpenPlayerInventory","OpenStore","PayAsLore","PayPlayer","Progress","RefundPlayer","RegisterPropertyPack","RegisterProps","RegisterVehicles","RemoveCatalogItem","RemoveItem","RemovePropertyKey","RemoveVehicleKey","RequestScreenshot","RevokeBankAccess","RevokePermission","SavePlayer","SetBankAccountFrozen","SetHeldItem","SetItemMetadata","SetPlayerMetadata","SetPropertyOwner","SetPropertyTheme","SetShopItemPrice","SetShopLayout","SetVehicleAppearance","SetVehicleData","SetVehicleGarage","SetVehicleLocked","SetVehiclePlate","SettleMoneyHold","SkillCheck","SpawnTempVehicle","SpawnVehicle","StoreCount","StoreGive","StoreMove","StoreRead","StoreTake","SwitchScenario","TestDirectorCard","TestDirectorScenario","TransferVehicle","UnlinkDoors","UpdateContainer","UpdateDoor","UpdateGarage","UpdateJob","UpdateJobRole","UpdateShop"],"client":["Alert","Callback","ClockOff","ClockOn","Confirm","EnterCharacter","FreeHands","GetPlayerFullName","Input","LoadAnimDict","LoadAnimSet","LoadModel","LoadPtfxAsset","LoadTextureDict","OpenKeyboard","OrbitCamera","PlaceObject","PlayCameraPath","PlayCameraSequence","PressScreen","Progress","ReadScreen","ResolveVehicle","SkillCheck","TakeScreenshot","TakeVehicleControl"]};
+  var WAITS = {"server":["AddCatalogItem","AddItem","AdoptVehicle","BankDeposit","BankSystemDeposit","BankSystemTransfer","BankSystemWithdraw","BankTransfer","BankWithdraw","CanGrantBankAccess","CanHirePlayer","CanUseBankAccount","ChangeVehicleLocks","ChargePlayer","ClaimVehicle","ClearAllVehicleData","ClearVehicleData","CloseBankAccount","ClosePanel","ClosePlayerInventory","CloseStore","CommitWithAction","CountVehicleKeys","CreateBankAccount","CreateContainer","CreateDoor","CreateGarage","CreateGroundItem","CreateJobRole","CreateOwnedVehicle","CreateShop","DeleteContainer","DeleteDoor","DeleteGarage","DeleteGroundItem","DeleteJob","DeleteJobRole","DeleteShop","DeleteZone","DespawnVehicle","EnsureContainer","EnsureDoor","EnsureDoors","EnsureJob","EnsureShop","EnsureTable","EnsureZone","FlushActivityLog","GetBalance","GetBankAccessList","GetBankAccount","GetBankTransactions","GetCharacterBankAccounts","GetCharacterNames","GetDefaultBankAccount","GetItemAt","GetJobBankAccounts","GetPermissionHolders","GetPlayerMetadata","GetPlayerVehicleKeys","GetScenarioStats","GetShopPrices","GetShopStock","GiveOnLogin","GivePropertyKey","GiveVehicleKey","GrantBankAccess","GrantPermission","HasVehicleKey","HirePlayer","HoldDoor","HoldMoney","IsCharacterDeleted","LinkDoors","LogActivity","LoreSay","OpenPlayerInventory","OpenStore","PayAsLore","PayPlayer","Progress","RefundPlayer","RegisterPropertyPack","RegisterProps","RegisterVehicles","RemoveCatalogItem","RemoveItem","RemovePropertyKey","RemoveVehicleKey","RequestScreenshot","RevokeBankAccess","RevokePermission","SavePlayer","SetBankAccountFrozen","SetHeldItem","SetItemMetadata","SetPlayerMetadata","SetPropertyOwner","SetPropertyTheme","SetShopItemPrice","SetShopLayout","SetVehicleAppearance","SetVehicleData","SetVehicleGarage","SetVehicleLocked","SetVehiclePlate","SettleMoneyHold","SkillCheck","SpawnTempVehicle","SpawnVehicle","StoreCount","StoreGive","StoreMove","StoreRead","StoreTake","SwitchScenario","TestDirectorCard","TestDirectorScenario","TransferVehicle","UnlinkDoors","UpdateContainer","UpdateDoor","UpdateGarage","UpdateJob","UpdateJobRole","UpdateShop"],"client":["Alert","Callback","ClockOff","ClockOn","Confirm","EditAppearance","EnterCharacter","FreeHands","GetPlayerFullName","Input","LoadAnimDict","LoadAnimSet","LoadModel","LoadPtfxAsset","LoadTextureDict","OpenKeyboard","OrbitCamera","PlaceObject","PlayCameraPath","PlayCameraSequence","PressScreen","Progress","ReadScreen","ResolveVehicle","SkillCheck","TakeScreenshot","TakeVehicleControl"]};
   (function () {
     var waits = { server: {}, client: {} };
     ['server', 'client'].forEach(function (side) { WAITS[side].forEach(function (n) { waits[side][n] = true; }); });
