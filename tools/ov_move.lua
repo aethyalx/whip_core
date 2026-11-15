@@ -210,8 +210,9 @@ function OvMove.start(target, onExit)
         FreezeEntityPosition(ent, true)
     end
     mv = { target = target, entity = ent, kind = target.kind, onExit = onExit, sentAt = 0, calAt = 0,
-           -- A ped stands up: it turns, it does not tilt. A car or a prop takes all three rings.
-           tilt = target.kind == 'vehicle' or target.kind == 'object', looking = false }
+           -- A ped stands up: it turns, it does not tilt. A car or a prop takes all three rings, unless the caller says
+           -- (target.tilt = false: a point placed with a heading, tools/place_point.lua).
+           tilt = target.tilt ~= false and (target.kind == 'vehicle' or target.kind == 'object'), looking = false }
     Focus.take('ovMove', { screen = true, keepInput = true })
     ControlBlocks.hold('ovMove', HOLD)
     ControlBlocks.hold('ovMoveLook', HOLD_LOOK)

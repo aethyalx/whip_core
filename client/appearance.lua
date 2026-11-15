@@ -1080,6 +1080,9 @@ function CloseCreator()
     DestroyCreatorCamera()
     SendNUIMessage({ action = 'closeCreator' })
     Focus.release('creator')
+    -- The HUD (and the cores' capsule) back now, not at the next screen poll (client/inventory.lua, 150 ms): a notice
+    -- sent as the editor shuts (a store's "Paid") then shows in the cores, not the top-right stack.
+    if WhipRefreshHudVisibility then WhipRefreshHudVisibility() end
 
     savedAppearance = nil
 end

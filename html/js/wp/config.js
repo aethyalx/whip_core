@@ -284,6 +284,9 @@ function check(s, raw) {
         const out = {};
         const labels = s.axisLabels || ['X', 'Y', 'Z', 'Heading'];
         const axes = axesOf(s);
+        // Every box empty is "none" where the setting has one (a store with no shopkeeper), as the server takes it.
+        const blank = (a) => !raw || raw[a] === undefined || raw[a] === null || String(raw[a]).trim() === '';
+        if (s.nullable && axes.every(blank)) return { value: null };
         for (let i = 0; i < axes.length; i++) {
             const a = axes[i];
             const text = raw && raw[a] !== undefined && raw[a] !== null ? String(raw[a]).trim() : '';
@@ -489,6 +492,12 @@ export function makeSettingsSection(def) {
                 const here = tag(WP.btn('Here', 'cfgCellHere', 'ghost', s.path));
                 here.classList.add('wp-btn-sm');
                 box.appendChild(here);
+            }
+            // Placed in the world (tools/place_point.lua): a ghost to aim and move, Place to take it.
+            if (f.place) {
+                const place = tag(WP.btn('Place', 'cfgCellPlace', 'ghost', s.path));
+                place.classList.add('wp-btn-sm');
+                box.appendChild(place);
             }
             return box;
         }
@@ -1133,6 +1142,12 @@ export function makeSettingsSection(def) {
                 here.classList.add('wp-btn-sm');
                 box.appendChild(here);
             }
+            // Placed in the world (tools/place_point.lua): a ghost to aim and move, Place to take it.
+            if (s.place) {
+                const place = WP.btn('Place in the world', 'cfgPlacePoint', 'ghost', s.path);
+                place.classList.add('wp-btn-sm');
+                box.appendChild(place);
+            }
             // A shot's camera: flown into place (Enter takes it), or the camera the admin looks through now.
             if (s.camera) {
                 const place = WP.btn('Place camera', 'cfgPlace', 'primary', s.path);
@@ -1454,6 +1469,30 @@ export function makeSettingsSection(def) {
         for (const [path, why] of errors) showRowError(path, why);
     }
 
+    /** A point placed in the world ({ path, row?, field?, value: { x, y, z, w } }): into a row's cell, as "Here" does,
+     *  or into a position setting, as "Use where I stand" does, waiting for Apply. */
+    function takePoint(d) {
+        const s = settingAt(d && d.path);
+        const pos = d && d.value;
+        if (!s || !pos || typeof pos.x !== 'number') return;
+        const r2 = (n) => Math.round(n * 100) / 100;
+        if (typeof d.row === 'number' && typeof d.field === 'string') {
+            const row = draftOf(s)[d.row];
+            const f = columnsOf(s).find((x) => x.key === d.field);
+            if (!row || !f) return;
+            const v = { x: r2(pos.x), y: r2(pos.y), z: r2(pos.z) };
+            if (f.type === 'vec4') v.w = r2(pos.w || 0);
+            setField(s.type === 'map' ? (row.value = row.value || {}) : row, d.field, v);
+            renderDetailKeepingFocus();
+            draftChanged(s);
+            return;
+        }
+        const c = check(s, { x: r2(pos.x), y: r2(pos.y), z: r2(pos.z), w: r2(pos.w || 0) });
+        if (c.why) { showRowError(s.path, s.label + ' ' + c.why); return; }
+        setPending(s, c.value);
+        renderAll();
+    }
+
     function showRowError(path, why) {
         const r = els.detail.querySelector('.cfg-row[data-path="' + CSS.escape(path) + '"]');
         if (!r) return;
@@ -1547,6 +1586,9 @@ export function makeSettingsSection(def) {
             } else if (kind === 'cameraPlaced') {
                 // Enter in the world (Place camera): the shot flown to, as edits waiting for Apply.
                 takeCamera(settingAt(payload && payload.path), payload);
+            } else if (kind === 'pointPlaced') {
+                // Place in the world (tools/place_point.lua): the point, as an edit waiting for Apply.
+                takePoint(payload);
             } else if (kind === 'heroShotEdited') {
                 // Done in the world (Edit in world): that place's shot, as an edit waiting for Apply.
                 const s = settingAt('CharSelect.slots');
@@ -1676,6 +1718,30 @@ export function makeSettingsSection(def) {
                     setField(s.type === 'map' ? (row.value = row.value || {}) : row, field, v);
                     renderDetailKeepingFocus();
                     draftChanged(s);
+                });
+            },
+            // "Place" in a row's position cell, or a position's "Place in the world": the panel steps aside for a
+            // ghost in the world, and Place there comes back as 'pointPlaced' (onData), Esc as nothing.
+            cfgCellPlace: (el) => {
+                const s = settingAt(el.dataset.arg);
+                if (!s) return;
+                const i = Number(el.dataset.row);
+                const field = el.dataset.field;
+                const f = columnsOf(s).find((x) => x.key === field);
+                const row = draftOf(s)[i];
+                if (!f || !row) return;
+                const at = getField(s.type === 'map' ? (row.value || {}) : row, field);
+                nuiCallback('cfgPlacePoint', {
+                    section: sid, path: s.path, row: i, field, at: at || null,
+                    place: typeof f.place === 'object' ? f.place : {}, label: f.label || s.label,
+                });
+            },
+            cfgPlacePoint: (el) => {
+                const s = settingAt(el.dataset.arg);
+                if (!s || !s.place) return;
+                nuiCallback('cfgPlacePoint', {
+                    section: sid, path: s.path, at: current(s) || null,
+                    place: typeof s.place === 'object' ? s.place : {}, label: s.label,
                 });
             },
             cfgCamera: (el) => {

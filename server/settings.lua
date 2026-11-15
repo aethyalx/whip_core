@@ -546,7 +546,7 @@ local PANEL_FIELDS = {
     'forbidden', 'pattern', 'patternWhy', 'offWhenEmpty', 'emptyLabel', 'minItems', 'maxItems',
     'limits', 'axisLabels', 'here', 'camera', 'unique', 'keyKind', 'keyPattern', 'keyWhy', 'keyLabel',
     'link', 'form', 'formLabel', 'formHelp', 'formFirst', 'choicesFrom', 'widget', 'shownWhen', 'warnOn',
-    'marker',
+    'marker', 'place',
 }
 
 -- [owner][path] = fn: a setting whose panel row offers what exists right now (the stats with a gauge), asked at

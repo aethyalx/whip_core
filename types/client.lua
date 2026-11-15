@@ -657,6 +657,16 @@ function whip_core:Input(title, fields) end
 ---@async
 function whip_core:PlaceObject(model, opts) end
 
+--- A point placed in the world with the object viewer's markers: a ghost where the camera looks (opts.at's heading), the
+--- centre dot dragged over the world, the arrows along X / Y / Z, the ring to turn it; Place takes it, Esc leaves it.
+---
+---     local spot = exports.whip_core:PlacePoint({ model = 's_f_y_shop_mid', ped = true, label = 'Shopkeeper' })
+---@param opts? { at?: { x: number, y: number, z: number, w?: number }, model?: string, ped?: boolean, label?: string }
+---@return { x: number, y: number, z: number, w: number }|false point
+---@return 'cancelled'|'busy'|'model'|nil why
+---@async
+function whip_core:PlacePoint(opts) end
+
 --- Run a skill check (blocking): the ring. The player pushes the dot onto the lit part of a ring and
 --- holds it there until it fills, once a round (the difficulty's `rounds`, each part smaller); touching the ring
 --- outside the lit part fails. Mouse (just moved, no cursor) or a pad's right stick; not the keyboard. The player's
