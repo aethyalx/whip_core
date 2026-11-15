@@ -3,8 +3,8 @@ game 'gta5'
 
 name 'whip_core'
 author 'Whippy'
-description 'Custom FiveM framework — Beta 1.0.1'
-version '1.0.1'   -- the start-up banner reads it
+description 'Custom FiveM framework — Beta 1.1.0'
+version '1.1.0'   -- the start-up banner reads it
 -- Where its releases are: the update check (server/updates.lua) compares the latest one with `version`.
 whip_updates 'WHIPFX/whip_core'
 
