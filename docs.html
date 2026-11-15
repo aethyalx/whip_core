@@ -2922,13 +2922,16 @@ if not ok then exports.whip_core:NotifyPlayer(source, why, 'error') end</code></
   <table class="param-table"><tr><th>Field</th><th>Type</th><th>Description</th></tr>
   <tr><td>only</td><td>table?</td><td>The tabs offered: category ids or groups. Left out, all of them</td></tr>
   <tr><td>prices</td><td>table?</td><td>Dollars each, by category id, then group, then <code>default</code>: <code>{ apparel = 50, hat = 20 }</code>. <code>tattoos</code> is per tattoo put on</td></tr>
+  <tr><td>methods</td><td>table?</td><td><code>{ 'cash', 'bank' }</code>: Save first opens a checkout, as whip_autos' basket: the total and a tile for each way to pay. One: no checkout, that way. Left out, Save pays your own way</td></tr>
+  <tr><td>wallet</td><td>table?</td><td><code>{ cash = n, bank = n }</code>: shown on the tiles; one that can't cover the total is greyed out. Read it on your server (<code>GetPlayerCash</code>, <code>GetBalance</code>)</td></tr>
   <tr><td>title / sub</td><td>string?</td><td>The editor's heading</td></tr>
-  <tr><td>onSave</td><td>function(look)</td><td>Required. May wait. Returns <code>true</code>, or <code>false, why</code> (60 characters)</td></tr>
+  <tr><td>onSave</td><td>function(look, method)</td><td>Required. May wait. <code>method</code> is the tile chosen, or nil. Returns <code>true</code>, or <code>false, why</code> (60 characters)</td></tr>
   <tr><td>onClose</td><td>function(saved)?</td><td>The editor shut: saved, or not (Cancel, a death, a logout)</td></tr></table>
   <div class="return-info"><strong>Returns: </strong><code>true</code>, or <code>false, why</code></div>
 <pre><code class="lang-lua">exports.whip_core:EditAppearance({
     only = { 'hair', 'beard', 'eyebrows' }, prices = { hair = 40, default = 15 }, title = 'Herr Kutz',
-    onSave = function(look) return exports.whip_core:Callback('mybarber:buy', look) end,
+    methods = { 'cash', 'bank' }, wallet = exports.whip_core:Callback('mybarber:wallet'),
+    onSave = function(look, method) return exports.whip_core:Callback('mybarber:buy', look, method) end,
 })</code></pre>
 </div></div>
 
@@ -2948,13 +2951,14 @@ if not ok then exports.whip_core:NotifyPlayer(source, why, 'error') end</code></
 <div class="export-body">
   <p>Keeps a look for a playing character, checked as the editor's Save is, and sends it to their game. <code>opts.only</code> takes only those tabs' parts from <code>look</code> and keeps the rest of their saved look, so a barber can't change a face.</p>
   <div class="return-info"><strong>Returns: </strong><code>true, look</code> (as kept), or <code>false, why</code></div>
-<pre><code class="lang-lua">SecureCallback('mybarber:buy', { params = { { 'look', 'any' } } }, function(source, player, look)
+<pre><code class="lang-lua">SecureCallback('mybarber:buy', { params = { { 'look', 'any' }, { 'method', 'enum', { 'cash', 'bank' }, 'cash' } } },
+    function(source, player, look, method)
     local only = { 'hair', 'beard', 'eyebrows' }
     local changes, why = exports.whip_core:GetAppearanceChanges(source, look, only)
     if not changes then return false, why end
     local total = 0
     for id, n in pairs(changes) do total = total + (id == 'hair' and 40 or 15) * n end
-    local receipt, err = exports.whip_core:ChargePlayer(source, total, { reason = 'Haircut' })
+    local receipt, err = exports.whip_core:ChargePlayer(source, total, { method = method, reason = 'Haircut' })
     if not receipt then return false, err end
     local ok, kept = exports.whip_core:SetPlayerAppearance(source, look, { only = only })
     if not ok then exports.whip_core:RefundPlayer(receipt) return false, kept end

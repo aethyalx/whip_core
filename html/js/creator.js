@@ -342,7 +342,7 @@ function previewTick() {
     } else {
         previewLoopRunning = false;
         // Settled after a change: a store's price follows it, and its last refusal is gone.
-        if (store && !store.busy) { store.why = ''; markStorePrice(); }
+        if (store && !store.busy) { store.why = ''; closeCheckout(); markStorePrice(); }
     }
 }
 
@@ -1846,15 +1846,57 @@ function bindStageEvents(root) {
 // SAVE / CANCEL
 // ========================================
 
-function saveAppearance() {
+function saveAppearance(method) {
     disarmCancel();
     if (store) {
         if (store.busy) return;
+        // Something to pay for, and ways to pay: the checkout first (one way: straight to it).
+        const total = storeTotal();
+        if (total > 0 && store.methods.length && !method) {
+            if (store.methods.length === 1) { method = store.methods[0]; } else { openCheckout(total); return; }
+        }
+        closeCheckout();
         store.busy = true;
         store.why = '';
         markStorePrice();
     }
-    nuiCallback('saveAppearance', { appearance: collectAppearance() });
+    nuiCallback('saveAppearance', { appearance: collectAppearance(), method: method || null });
+}
+
+function storeTotal() {
+    return store ? storePrice(storeChanges(store.from, collectAppearance(), store.only), store.prices) : 0;
+}
+
+const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
+
+/** A store's checkout, as whip_autos' basket: the total, and a tile for each way to pay with what the player has
+ *  there (EditAppearance's wallet, read as the editor opened). A tile that can't cover the total is greyed out. */
+function openCheckout(total) {
+    store.checkout = true;
+    $('cr-pay-total').textContent = money(total);
+    const lines = { cash: [store.wallet.cash, 'on you', 'From your pockets'], bank: [store.wallet.bank, 'in your account', 'Your default account'] };
+    document.querySelectorAll('#cr-pay .cr-pay-tile').forEach(tile => {
+        const m = tile.dataset.method;
+        const offered = store.methods.includes(m);
+        tile.hidden = !offered;
+        const [have, where, plain] = lines[m];
+        const known = typeof have === 'number';
+        tile.querySelector('span').textContent = known ? `${money(have)} ${where}` : plain;
+        tile.disabled = !offered || (known && have < total);
+    });
+    $('cr-pay').hidden = false;
+    document.querySelector('#creator .cr-footer').classList.add('paying');
+    $('cr-save').hidden = true;
+    $('cr-cancel').textContent = 'Back';
+}
+
+function closeCheckout() {
+    if (!store || !store.checkout) return;
+    store.checkout = false;
+    $('cr-pay').hidden = true;
+    document.querySelector('#creator .cr-footer').classList.remove('paying');
+    $('cr-save').hidden = false;
+    disarmCancel();
 }
 
 /** A store's Save says the price of what changed: "Pay $120", or Save while nothing costs anything. */
@@ -1862,7 +1904,7 @@ function markStorePrice() {
     const btn = $('cr-save');
     if (!btn) return;
     if (!store) { btn.textContent = 'Save'; btn.title = ''; return; }
-    const total = storePrice(storeChanges(store.from, collectAppearance(), store.only), store.prices);
+    const total = storeTotal();
     btn.textContent = store.busy ? 'Paying…' : store.why ? store.why : total > 0 ? `Pay $${total.toLocaleString('en-US')}` : 'Save';
     btn.classList.toggle('refused', !!store.why && !store.busy);
 }
@@ -1879,6 +1921,8 @@ NuiRouter.register('creatorSaveRefused', (d) => {
 // one press turns the button into "DISCARD?", a second within 3s confirms.
 // Cheaper than a modal, still one honest mistake away from safe.
 function attemptCancel() {
+    // The checkout up: Cancel (Esc, B) is Back to the editor.
+    if (store && store.checkout) { closeCheckout(); return; }
     if (cancelArmed) {
         disarmCancel();
         nuiCallback('cancelCreator', {});
@@ -1898,7 +1942,7 @@ function disarmCancel() {
     const btn = $('cr-cancel');
     if (btn) {
         btn.classList.remove('armed');
-        btn.textContent = isNew ? 'Skip' : 'Cancel';
+        btn.textContent = store && store.checkout ? 'Back' : isNew ? 'Skip' : 'Cancel';
     }
     const hint = $('cr-esc-hint');   // the legend names what Esc does: the same button
     if (hint) hint.textContent = isNew ? 'Skip' : 'Cancel';
@@ -1933,6 +1977,7 @@ function disarmCancel() {
         ['outfitDelete', el => deleteOutfit(el)],
         ['save',     () => saveAppearance()],
         ['cancel',   () => attemptCancel()],
+        ['pay',      el => saveAppearance(el.dataset.method)],
     ]);
 
     const INPUT = new Map([
@@ -2223,7 +2268,10 @@ NuiRouter.register('openCreator', (d) => {
     const s = d.store && typeof d.store === 'object' ? d.store : null;
     const only = s && Array.isArray(s.only) && s.only.length ? new Set(s.only.map(String)) : null;
     store = s ? { only, prices: (s.prices && typeof s.prices === 'object') ? s.prices : {},
-        from: collectAppearanceOf(appearance), busy: false, why: '' } : null;
+        from: collectAppearanceOf(appearance), busy: false, why: '', checkout: false,
+        // How the player may pay ('cash', 'bank'): Save opens the checkout. None: Save pays the store's own way.
+        methods: Array.isArray(s.methods) ? s.methods.filter(m => m === 'cash' || m === 'bank') : [],
+        wallet: (s.wallet && typeof s.wallet === 'object') ? s.wallet : {} } : null;
     shownCats = CATEGORIES.filter(cat => storeAllows(only, cat));
     if (!shownCats.length) shownCats = CATEGORIES;
     shownClusters = CLUSTER_ORDER.filter(key => shownCats.some(cat => cat.cluster === key));
@@ -2286,6 +2334,7 @@ NuiRouter.register('closeCreator', () => {
     cursor.hide();
     disarmCancel();
     disarmOutfitDelete();
+    closeCheckout();
     store = null;
     markStorePrice();
     document.getElementById('creator').classList.remove('open');

@@ -289,6 +289,14 @@
         <div id="cr-stage"></div>
 
         <div class="cr-footer">
+            <!-- A store's checkout (creator.js, EditAppearance's methods): the total, and how to pay -->
+            <div id="cr-pay" class="cr-pay" hidden>
+                <div class="cr-pay-total"><span>Total</span><b id="cr-pay-total">$0</b></div>
+                <div class="cr-pay-tiles">
+                    <button class="cr-btn cr-pay-tile" data-action="pay" data-method="cash"><b>Cash</b><span id="cr-pay-cash">From your pockets</span></button>
+                    <button class="cr-btn cr-pay-tile" data-action="pay" data-method="bank"><b>Bank</b><span id="cr-pay-bank">Your default account</span></button>
+                </div>
+            </div>
             <div class="cr-btns">
                 <button id="cr-cancel" class="cr-btn" data-action="cancel">Cancel</button>
                 <button id="cr-save" class="cr-btn cr-btn-primary" data-action="save">Save</button>

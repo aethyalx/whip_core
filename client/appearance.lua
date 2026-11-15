@@ -1390,7 +1390,9 @@ RegisterNUICallback('saveAppearance', function(data, cb)
         if job.busy then return end
         job.busy = true
         CreateThread(function()
-            local called, ok, why = pcall(job.onSave, appearance)
+            -- The way the player chose at the checkout, when the store offers ways to pay; else nil.
+            local method = job.methods[data.method] and data.method or nil
+            local called, ok, why = pcall(job.onSave, appearance, method)
             job.busy = false
             if storeFor ~= job or not CreatorLive() then return end   -- closed meanwhile (a death, a logout)
             if called and ok == true then
@@ -1708,9 +1710,12 @@ end
 
 --- The editor on this character's own look, as a store: only the tabs `only` names, the price of what changed on
 --- Save, and Save handed to onSave(look), which charges and keeps it (server: SetPlayerAppearance) and returns
---- true, or false, 'why' (said on Save; the editor stays open). Waits for the fade only; call it from a thread.
+--- true, or false, 'why' (said on Save; the editor stays open). With `methods` ('cash', 'bank'), Save first opens a
+--- checkout (the total, a tile for each way to pay, what `wallet` says the player has there) and onSave gets the one
+--- chosen. Waits for the fade only; call it from a thread.
 ---@param opts table  { only = { category ids or groups }, prices = { [id or group or 'default'] = $ each },
----                     title, sub, onSave = function(look) -> ok, why, onClose = function(saved) | nil }
+---                     methods = { 'cash', 'bank' } | nil, wallet = { cash = n, bank = n } | nil,
+---                     title, sub, onSave = function(look, method) -> ok, why, onClose = function(saved) | nil }
 ---@return boolean ok
 ---@return string|nil why
 function EditAppearance(opts)
@@ -1724,11 +1729,21 @@ function EditAppearance(opts)
     for k, v in pairs(type(opts.prices) == 'table' and opts.prices or {}) do
         if type(k) == 'string' and type(v) == 'number' and v >= 0 then prices[k] = v end
     end
-    storeFor = { onSave = opts.onSave, onClose = callable(opts.onClose) and opts.onClose or nil, busy = false }
+    -- The checkout: the ways to pay offered, and what the player has in each (the store's server knows; optional).
+    local methods, methodSet, wallet = {}, {}, {}
+    for _, m in ipairs(type(opts.methods) == 'table' and opts.methods or {}) do
+        if (m == 'cash' or m == 'bank') and not methodSet[m] then methods[#methods + 1] = m; methodSet[m] = true end
+    end
+    local w = type(opts.wallet) == 'table' and opts.wallet or {}
+    for _, m in ipairs({ 'cash', 'bank' }) do
+        if type(w[m]) == 'number' then wallet[m] = w[m] end
+    end
+    storeFor = { onSave = opts.onSave, onClose = callable(opts.onClose) and opts.onClose or nil, busy = false,
+                 methods = methodSet }
     local ok, err = OpenCharacterEditor({
         title = type(opts.title) == 'string' and opts.title or nil,
         sub = type(opts.sub) == 'string' and opts.sub or nil,
-        store = { only = only, prices = prices },
+        store = { only = only, prices = prices, methods = methods, wallet = wallet },
     })
     if not ok then storeFor = nil end
     return ok, err

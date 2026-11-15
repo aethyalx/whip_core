@@ -825,6 +825,45 @@
 }
 .cr-footer .cr-btns { pointer-events: auto; }
 
+/* A store's checkout (EditAppearance's methods): above Cancel/Save, the total and a tile per way to pay, as
+   whip_autos' basket. Cancel reads Back while it is up. */
+.cr-footer.paying { flex-direction: column; gap: 10px; }
+.cr-pay[hidden] { display: none; }
+.cr-pay {
+    pointer-events: auto;
+    width: 340px;
+    box-sizing: border-box;
+    padding: 14px;
+    border-radius: 12px;
+    background: rgba(8, 10, 16, 0.82);
+    box-shadow: var(--ui-shadow);
+}
+.cr-pay-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin: 0 2px 12px;
+    font-size: 11px;
+    font-weight: var(--ui-fw-bold);
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+}
+.cr-pay-total b { font-size: 26px; letter-spacing: 0; color: var(--ui-text); }
+.cr-pay-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.cr-pay-tile {
+    height: auto;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    white-space: normal;
+    text-align: left;
+}
+.cr-pay-tile b { font-size: 15px; }
+.cr-pay-tile span { font-size: 11px; font-weight: 500; opacity: 0.8; }
+.cr-pay-tile:disabled { opacity: 0.4; cursor: default; }
+
 .cr-hint { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .cr-hint b {
     font-weight: var(--ui-fw-bold);
